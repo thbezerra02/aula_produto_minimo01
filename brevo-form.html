@@ -67,6 +67,35 @@
       filter: brightness(1.06);
     }
 
+    button:disabled {
+      cursor: wait;
+      opacity: 0.72;
+    }
+
+    .message {
+      display: none;
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .message.is-error {
+      display: block;
+      background: rgba(255, 92, 92, 0.13);
+      border: 1px solid rgba(255, 92, 92, 0.35);
+      color: #ffd6d6;
+    }
+
+    .message.is-success {
+      display: block;
+      background: rgba(47, 191, 96, 0.14);
+      border: 1px solid rgba(47, 191, 96, 0.38);
+      color: #c9f7da;
+    }
+
     .hint {
       margin: 0;
       color: var(--muted);
@@ -82,9 +111,124 @@
     <input type="hidden" name="WHATSAPP__COUNTRY_CODE" value="+55">
     <input type="tel" id="WHATSAPP" name="WHATSAPP" autocomplete="tel" placeholder="WhatsApp com DDD" required>
     <button type="submit">Acessar aula gratuita agora</button>
+    <p class="message" id="form-message" role="alert" aria-live="polite"></p>
     <input type="text" name="email_address_check" value="" style="display:none">
     <input type="hidden" name="locale" value="pt">
     <p class="hint">100% online e gratuito.</p>
   </form>
+  <script>
+    const form = document.getElementById('sib-form');
+    const phoneInput = document.getElementById('WHATSAPP');
+    const message = document.getElementById('form-message');
+    const button = form.querySelector('button');
+
+    function showMessage(text, type) {
+      message.textContent = text;
+      message.className = `message is-${type}`;
+    }
+
+    function clearMessage() {
+      message.textContent = '';
+      message.className = 'message';
+    }
+
+    function getPhoneDigits(value) {
+      let digits = value.replace(/\D/g, '');
+
+      if (digits.startsWith('55') && digits.length > 11) {
+        digits = digits.slice(2);
+      }
+
+      return digits;
+    }
+
+    function isValidBrazilianPhone(value) {
+      const digits = getPhoneDigits(value);
+      const ddd = Number(digits.slice(0, 2));
+
+      return (digits.length === 10 || digits.length === 11) && ddd >= 11 && ddd <= 99;
+    }
+
+    phoneInput.addEventListener('input', () => {
+      clearMessage();
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessage();
+
+      if (!form.reportValidity()) {
+        return;
+      }
+
+      if (!isValidBrazilianPhone(phoneInput.value)) {
+        showMessage('Confira o WhatsApp. Use DDD + número, por exemplo: 11999999999.', 'error');
+        phoneInput.focus();
+        return;
+      }
+
+      const originalButtonText = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Enviando...';
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          redirect: 'follow'
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        const responseText = await response.text();
+
+        if (response.redirected && response.url) {
+          window.top.location.href = response.url;
+          return;
+        }
+
+        if (contentType.includes('application/json') || responseText.trim().startsWith('{')) {
+          const data = JSON.parse(responseText);
+
+          const redirectUrl = data.redirect || data.redirect_url || data.url;
+
+          if (data.success && redirectUrl) {
+            window.top.location.href = redirectUrl;
+            return;
+          }
+
+          if (data.success) {
+            showMessage('Cadastro realizado. Abrindo a aula...', 'success');
+            return;
+          }
+
+          const whatsappError = data.errors && data.errors.WHATSAPP;
+          const emailError = data.errors && data.errors.EMAIL;
+
+          if (whatsappError) {
+            showMessage('Esse WhatsApp já está cadastrado ou foi digitado incorretamente. Confira o número e tente novamente.', 'error');
+            phoneInput.focus();
+            return;
+          }
+
+          if (emailError) {
+            showMessage('Confira o e-mail informado e tente novamente.', 'error');
+            return;
+          }
+        }
+
+        if (!response.ok) {
+          showMessage('Não foi possível concluir o cadastro agora. Confira os dados e tente novamente.', 'error');
+          return;
+        }
+
+        showMessage('Cadastro enviado. Se a aula não abrir automaticamente, tente novamente em alguns segundos.', 'success');
+      } catch (error) {
+        showMessage('Não foi possível validar o cadastro agora. Confira o WhatsApp e tente novamente.', 'error');
+      } finally {
+        button.disabled = false;
+        button.textContent = originalButtonText;
+      }
+    });
+  </script>
 </body>
 </html>
